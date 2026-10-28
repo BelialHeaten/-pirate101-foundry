@@ -1,4 +1,4 @@
-import {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, mergeRules} from "./rules.mjs";
+import {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, attributeComparison, applyCritical, mergeRules} from "./rules.mjs";
 
 const DEFAULT_ACTOR = {
   class: "buccaneer", level: 1, experience: 0,
@@ -13,10 +13,14 @@ const DEFAULT_ITEM = {
 };
 
 Hooks.once("init", () => {
-  console.info("Pirate101 Flexible Rules | Initializing Phase 5");
+  console.info("Pirate101 Flexible Rules | Initializing Phase 6");
   game.settings.register("pirate101-flex", "rules", {
     name: "Rules configuration (advanced)", hint: "Configurable overrides for the Phase 1 calculation engine.",
     scope: "world", config: false, type: Object, default: mergeRules()
+  });
+  game.settings.register("pirate101-flex", "comparisonMode", {
+    name: "Attribute comparison (experimental)", hint: "Disabled by default. Linear mode uses an adjustable approximation, NOT the verified Pirate101 formula.",
+    scope: "world", config: true, type: String, choices: {off:"Off (verified mechanics only)",linear:"Linear approximation (homebrew)"}, default: "off"
   });
   game.settings.register("pirate101-flex", "autoDamage", {
     name: "Automatically apply basic-attack damage", hint: "OFF by default. If enabled, attacks reduce HP only when the acting user has ownership permission for the target. Calculations are still provisional.",
@@ -24,8 +28,8 @@ Hooks.once("init", () => {
   });
   CONFIG.Actor.dataModels = Object.fromEntries(["pirate", "companion", "enemy", "boss", "summon"].map(t => [t, PirateActorData]));
   CONFIG.Item.dataModels = Object.fromEntries(["weapon", "equipment", "talent", "power", "effect"].map(t => [t, PirateItemData]));
-  game.pirate101 = {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, mergeRules,
-    get rules() {return game.settings.get("pirate101-flex", "rules");}};
+  game.pirate101 = {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, attributeComparison, applyCritical, mergeRules,
+    get rules() {return {...game.settings.get("pirate101-flex", "rules"), comparisonMode: game.settings.get("pirate101-flex", "comparisonMode")};}};
 });
 
 const F = foundry.data.fields;
@@ -142,7 +146,8 @@ class Pirate101ActorSheet extends ActorSheet {
           applied = true;
         }
       }
-      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Provisional damage: <strong>${damage}</strong></p><p>${applied ? `HP: ${oldHP} → ${newHP}` : "Preview only — target HP unchanged"}</p><small>Armor/Resist and Rough are provisional. Criticals, attribute comparison, powers, and Epic Talent chains are not automated.</small></div>`;
+      const comparisonText = result.comparison ? `<p>Attribute comparison: ${result.comparison.difference >= 0 ? "+" : ""}${result.comparison.difference} (${result.comparison.percent}% bonus; ${result.comparison.mode})</p>` : "";
+      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Damage: <strong>${damage}</strong></p>${comparisonText}<p>${applied ? `HP: ${oldHP} → ${newHP}` : "Preview only — target HP unchanged"}</p><small>Armor/Resist and Rough remain provisional. Critical chances, powers, and Epic Talent chains are not automated.</small></div>`;
       await ChatMessage.create({user:game.user.id, speaker:ChatMessage.getSpeaker({actor:this.actor}), content});
       } catch (err) { console.error("Pirate101 attack failed",err); ui.notifications.error(`Attack failed: ${err.message}`); }
       finally { this._attackBusy = false; }

@@ -13,6 +13,12 @@ export const DEFAULT_RULES = Object.freeze({
   resistMode: "flat", // provisional
   roughMode: "flat", // provisional
   critMode: "manual", // no unsupported critical formula assumed
+  comparisonMode: "off", // off by default until exact official curve is known
+  comparisonPointsPerPercent: 4, // homebrew approximation: +1% per 4-point advantage
+  comparisonMaxPercent: 25,
+  criticalMode: "off", // off or manual; no invented random critical rates
+  criticalTier: "none", // none, super, mega, epic (manual testing)
+  criticalMultipliers: {super: 1.33, mega: 1.67, epic: 2}, // community estimates, not verified exact
   clampHealth: true
 });
 export function number(value, fallback = 0) {
@@ -80,11 +86,28 @@ export function applyDefense(damage, defenderStats, damageType = "physical", rul
   if (mode === "percent") return Math.max(number(cfg.damageFloor), Math.floor(number(damage) * (1 - clamp(defense, 0, 100) / 100)));
   return Math.max(number(cfg.damageFloor), number(damage) - defense);
 }
+/** Comparison bonus is documented up to 25%, but the exact curve is unknown.
+ * This opt-in linear approximation is explicitly homebrew. */
+export function attributeComparison(attackerStats, defenderStats, attribute, rules = {}) {
+  const cfg = mergeRules(rules);
+  const difference = number(attackerStats[attribute]) - number(defenderStats[attribute]);
+  const percent = cfg.comparisonMode === "linear" ? clamp(Math.floor(difference / Math.max(1, number(cfg.comparisonPointsPerPercent, 4))), 0, number(cfg.comparisonMaxPercent, 25)) : 0;
+  return {attribute, difference, percent, mode: cfg.comparisonMode};
+}
+export function applyCritical(damage, rules = {}) {
+  const cfg = mergeRules(rules);
+  const tier = cfg.criticalMode === "manual" ? cfg.criticalTier : "none";
+  const multiplier = tier === "none" ? 1 : number(cfg.criticalMultipliers?.[tier], 1);
+  return {tier, multiplier, damage: Math.floor(number(damage) * multiplier)};
+}
 /** Dry-run combat calculation; no actor mutation and no unsupported crit assumption. */
 export function resolveBasicAttack({attacker, defender, weapon, rules = {}, bonuses = {}, rng = Math.random}) {
   const hit = rollHit(attacker, defender, rules, bonuses, rng);
   if (!hit.hit) return {hit, damage: 0, critical: null, note: "Critical and epic talent processing not yet implemented"};
   const damageRoll = rollWeaponDamage(attacker, weapon, rules, rng);
-  return {hit, damageRoll, damage: applyDefense(damageRoll.rolled, defender, weapon.damageType ?? "physical", rules), critical: null,
-    note: "Provisional damage pipeline; primary-attribute comparison and power-specific rules are not yet implemented"};
+  const comparison = attributeComparison(attacker, defender, damageRoll.attribute, rules);
+  const comparedDamage = Math.floor(damageRoll.rolled * (1 + comparison.percent / 100));
+  const critical = applyCritical(comparedDamage, rules);
+  return {hit, damageRoll, comparison, critical, damage: applyDefense(critical.damage, defender, weapon.damageType ?? "physical", rules),
+    note: "Attribute comparison is opt-in homebrew approximation; critical multipliers are community estimates; Armor/Resist and Rough remain provisional."};
 }
