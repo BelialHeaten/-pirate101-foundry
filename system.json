@@ -2,7 +2,7 @@
   "id": "pirate101-flex",
   "title": "Pirate101 Flexible Rules",
   "description": "Unofficial configurable Pirate101-inspired stat and calculation foundation.",
-"version": "0.7.0"
+"version": "0.7.0",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
