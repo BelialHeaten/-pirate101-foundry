@@ -14,3 +14,19 @@ test('opt-in comparison caps at 25%', () => assert.equal(attributeComparison({st
 test('negative attribute advantage does not create bonus', () => assert.equal(attributeComparison({strength:10},{strength:50},'strength',{comparisonMode:'linear'}).percent,0));
 test('critical tiers are off by default', () => assert.equal(applyCritical(100).damage,100));
 test('manual critical test uses configured multiplier', () => assert.equal(applyCritical(100,{criticalMode:'manual',criticalTier:'epic'}).damage,200));
+
+test('forced super critical on hit', () => {
+  const r=resolveBasicAttack({attacker:{strength:0,accuracy:0,rough:0},defender:{dodge:0,armor:0,strength:0},weapon:{attribute:'strength',damage:{min:100,max:100}},rules:{criticalMode:'manual',criticalTier:'super',criticalMultipliers:{super:1.5}},rng:()=>0});
+  assert.equal(r.critical.tier,'super');assert.equal(r.damage,150);
+});
+test('forced epic never triggers on a miss', () => {
+  const r=resolveBasicAttack({attacker:{accuracy:0},defender:{dodge:100},weapon:{attribute:'strength',damage:{min:100,max:100}},rules:{criticalMode:'manual',criticalTier:'epic'},rng:()=>0.5});
+  assert.equal(r.damage,0);assert.equal(r.critical,null);
+});
+test('random critical chance deterministic', () => {
+  assert.equal(applyCritical(100,{criticalMode:'random',criticalChances:{epic:1,mega:2,super:5}},()=>0).tier,'epic');
+  assert.equal(applyCritical(100,{criticalMode:'random',criticalChances:{epic:1,mega:2,super:5}},()=>0.02).tier,'mega');
+  assert.equal(applyCritical(100,{criticalMode:'random',criticalChances:{epic:1,mega:2,super:5}},()=>0.04).tier,'super');
+  assert.equal(applyCritical(100,{criticalMode:'random',criticalChances:{epic:1,mega:2,super:5}},()=>0.5).tier,'none');
+});
+test('invalid combined critical chance rejected', () => assert.throws(()=>applyCritical(100,{criticalMode:'random',criticalChances:{epic:60,mega:60,super:0}}),/must not exceed/));

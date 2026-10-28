@@ -1,3 +1,4 @@
+import {planReaction} from "./reactions.mjs";
 import {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, attributeComparison, applyCritical, mergeRules} from "./rules.mjs";
 
 const DEFAULT_ACTOR = {
@@ -13,7 +14,7 @@ const DEFAULT_ITEM = {
 };
 
 Hooks.once("init", () => {
-  console.info("Pirate101 Flexible Rules | Initializing Phase 6");
+  console.info("Pirate101 Flexible Rules | Initializing Phase 8");
   game.settings.register("pirate101-flex", "rules", {
     name: "Rules configuration (advanced)", hint: "Configurable overrides for the Phase 1 calculation engine.",
     scope: "world", config: false, type: Object, default: mergeRules()
@@ -22,6 +23,39 @@ Hooks.once("init", () => {
     name: "Attribute comparison (experimental)", hint: "Disabled by default. Linear mode uses an adjustable approximation, NOT the verified Pirate101 formula.",
     scope: "world", config: true, type: String, choices: {off:"Off (verified mechanics only)",linear:"Linear approximation (homebrew)"}, default: "off"
   });
+  game.settings.register("pirate101-flex", "criticalMode", {
+    name: "Critical hit mode (experimental)", hint: "Off, forced tier for testing, or random with homebrew probabilities. No official rates are claimed.",
+    scope: "world", config: true, type: String, choices: {off:"Off",manual:"Force selected tier (testing)",random:"Random (homebrew rates)"}, default: "off"
+  });
+  game.settings.register("pirate101-flex", "criticalTier", {
+    name: "Force critical tier (testing)", hint: "Only applies when critical mode is Force selected tier. Hits only; misses never crit.",
+    scope: "world", config: true, type: String, choices: {none:"None",super:"Super",mega:"Mega",epic:"Epic"}, default: "none"
+  });
+  for (const tier of ["super", "mega", "epic"]) {
+    game.settings.register("pirate101-flex", `criticalChance_${tier}`, {
+      name: `${tier[0].toUpperCase()+tier.slice(1)} critical chance (%)`, hint: "Experimental homebrew chance in Random mode; combined rates must be at most 100%.",
+      scope: "world", config: true, type: Number, range: {min:0,max:100,step:1}, default: {super:5,mega:2,epic:1}[tier]
+    });
+    game.settings.register("pirate101-flex", `criticalMultiplier_${tier}`, {
+      name: `${tier[0].toUpperCase()+tier.slice(1)} critical multiplier`, hint: "Experimental homebrew damage multiplier (not an official Pirate101 value).",
+      scope: "world", config: true, type: Number, range: {min:1,max:5,step:0.01}, default: {super:1.33,mega:1.67,epic:2}[tier]
+    });
+  }
+  game.settings.register("pirate101-flex", "epicReactions", {
+    name: "Epic Talent reactions (Phase 8 experimental)",
+    hint: "OFF by default. Enables one Relentless follow-up after a melee hit or one Riposte counter after a melee miss. No recursive chains. Homebrew chances.",
+    scope: "world", config: true, type: Boolean, default: false
+  });
+  game.settings.register("pirate101-flex", "reactionChanceBase", {
+    name: "Epic Talent reaction chance at rank 1 (%)",
+    hint: "Experimental homebrew probability, not an official Pirate101 rate.",
+    scope: "world", config: true, type: Number, range:{min:0,max:100,step:1}, default:20
+  });
+  game.settings.register("pirate101-flex", "reactionChancePerRank", {
+    name: "Additional reaction chance per talent rank (%)",
+    hint: "Experimental homebrew scaling, capped at 100%.",
+    scope: "world", config: true, type: Number, range:{min:0,max:100,step:1}, default:10
+  });
   game.settings.register("pirate101-flex", "autoDamage", {
     name: "Automatically apply basic-attack damage", hint: "OFF by default. If enabled, attacks reduce HP only when the acting user has ownership permission for the target. Calculations are still provisional.",
     scope: "world", config: true, type: Boolean, default: false
@@ -29,7 +63,13 @@ Hooks.once("init", () => {
   CONFIG.Actor.dataModels = Object.fromEntries(["pirate", "companion", "enemy", "boss", "summon"].map(t => [t, PirateActorData]));
   CONFIG.Item.dataModels = Object.fromEntries(["weapon", "equipment", "talent", "power", "effect"].map(t => [t, PirateItemData]));
   game.pirate101 = {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, attributeComparison, applyCritical, mergeRules,
-    get rules() {return {...game.settings.get("pirate101-flex", "rules"), comparisonMode: game.settings.get("pirate101-flex", "comparisonMode")};}};
+    get rules() {return {...game.settings.get("pirate101-flex", "rules"),
+      comparisonMode: game.settings.get("pirate101-flex", "comparisonMode"),
+      criticalMode: game.settings.get("pirate101-flex", "criticalMode"),
+      criticalTier: game.settings.get("pirate101-flex", "criticalTier"),
+      criticalChances: Object.fromEntries(["super","mega","epic"].map(t => [t,game.settings.get("pirate101-flex", `criticalChance_${t}`)])),
+      criticalMultipliers: Object.fromEntries(["super","mega","epic"].map(t => [t,game.settings.get("pirate101-flex", `criticalMultiplier_${t}`)]))
+    };}};
 });
 
 const F = foundry.data.fields;
@@ -146,9 +186,43 @@ class Pirate101ActorSheet extends ActorSheet {
           applied = true;
         }
       }
+      const criticalText = result.critical?.tier && result.critical.tier !== "none"
+        ? `<p>Critical: <strong>${result.critical.tier.toUpperCase()}</strong> (×${result.critical.multiplier})</p>` : "";
       const comparisonText = result.comparison ? `<p>Attribute comparison: ${result.comparison.difference >= 0 ? "+" : ""}${result.comparison.difference} (${result.comparison.percent}% bonus; ${result.comparison.mode})</p>` : "";
-      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Damage: <strong>${damage}</strong></p>${comparisonText}<p>${applied ? `HP: ${oldHP} → ${newHP}` : "Preview only — target HP unchanged"}</p><small>Armor/Resist and Rough remain provisional. Critical chances, powers, and Epic Talent chains are not automated.</small></div>`;
+      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Damage: <strong>${damage}</strong></p>${comparisonText}${criticalText}<p>${applied ? `HP: ${oldHP} → ${newHP}` : "Preview only — target HP unchanged"}</p><small>Armor/Resist and Rough remain provisional. Critical chances/multipliers, Armor/Resist and Rough are experimental; powers and Epic Talent chains are not automated.</small></div>`;
       await ChatMessage.create({user:game.user.id, speaker:ChatMessage.getSpeaker({actor:this.actor}), content});
+      // One optional reaction per manually initiated basic attack. No recursive calls.
+      if (game.settings.get("pirate101-flex", "epicReactions")) {
+        const defenderWeapon = target.actor.items.find(i => i.type === "weapon" && i.system.equipped && Number(i.system.range) <= 1);
+        const reaction = planReaction({hit:result.hit.hit, attacker:this.actor, defender:target.actor,
+          weapon, defenderWeapon, enabled:true,
+          chanceBase:game.settings.get("pirate101-flex", "reactionChanceBase"),
+          chancePerRank:game.settings.get("pirate101-flex", "reactionChancePerRank")});
+        if (reaction.triggered) {
+          const isRiposte = reaction.kind === "riposte";
+          const reactor = isRiposte ? target.actor : this.actor;
+          const victim = isRiposte ? this.actor : target.actor;
+          const reactWeapon = isRiposte ? defenderWeapon : weapon;
+          // The reaction is deliberately skipped if user cannot edit its victim.
+          // No GM socket escalation or silent HP modifications.
+          if (!victim.isOwner) {
+            ui.notifications.warn(`${reaction.talent} triggered, but target ownership is missing. No reaction damage applied.`);
+          } else {
+            const reactionResult = resolveBasicAttack({attacker:reactor.system.derived.stats,
+              defender:victim.system.derived.stats,weapon:reactWeapon.system.toObject(),rules:game.pirate101.rules});
+            const previousHP = Number(victim.system.health.value);
+            const nextHP = Math.max(0,previousHP-reactionResult.damage);
+            let reactionApplied = false;
+            if (apply && reactionResult.hit.hit && reactionResult.damage > 0) {
+              await victim.update({"system.health.value":nextHP});
+              reactionApplied = true;
+            }
+            const reactionTitle = `${esc(reactor.name)} uses ${esc(reaction.talent)} against ${esc(victim.name)}`;
+            const reactionContent = `<div class="p101-attack-card"><h3>${reactionTitle}</h3><p>Reaction: ${reaction.kind.toUpperCase()} (rank ${reaction.rank}, trigger roll ${reaction.roll} / ${reaction.chance}%)</p><p>Follow-up hit roll: ${reactionResult.hit.roll} / ${reactionResult.hit.chance}% — <strong>${reactionResult.hit.hit ? "Hit" : "Miss"}</strong></p><p>Damage: <strong>${reactionResult.damage}</strong></p>${reactionResult.critical?.tier !== "none" && reactionResult.critical ? `<p>Critical: ${reactionResult.critical.tier.toUpperCase()} (×${reactionResult.critical.multiplier})</p>` : ""}<p>${reactionApplied ? `HP: ${previousHP} → ${nextHP}` : "Preview only — HP unchanged"}</p><small>Phase 8: one-step experimental reaction. Reaction attacks do not chain.</small></div>`;
+            await ChatMessage.create({user:game.user.id,speaker:ChatMessage.getSpeaker({actor:reactor}),content:reactionContent});
+          }
+        }
+      }
       } catch (err) { console.error("Pirate101 attack failed",err); ui.notifications.error(`Attack failed: ${err.message}`); }
       finally { this._attackBusy = false; }
     });

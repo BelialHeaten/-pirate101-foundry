@@ -1,3 +1,7 @@
+## Phase 8 (v0.8.0)
+
+Experimental one-step Relentless and Riposte reactions, disabled by default. See PHASE8-INSTRUCTIONS.md. Does not implement per-round limits, grid distance checks, or official talent probabilities.
+
 # Pirate101 Flexible Rules — Phase 1 (Foundry v13)
 
 Unofficial, community-built, configurable stat-engine foundation. No copyrighted game assets included.

@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {talentKind, reactionChance, planReaction} from '../system/reactions.mjs';
+const weapon={type:'weapon',system:{equipped:true,range:1}};
+const actor=(name,rank=1)=>({items:[{type:'talent',name,system:{rank}}]});
+test('talent recognition',()=>{assert.equal(talentKind({type:'talent',name:'Relentless'}),'relentless');assert.equal(talentKind({type:'power',name:'Riposte'}),null);});
+test('rank scaling',()=>{assert.equal(reactionChance(1),20);assert.equal(reactionChance(3),40);assert.equal(reactionChance(50),100);});
+test('reactions off by default',()=>assert.equal(planReaction({hit:true,attacker:actor('Relentless'),weapon,defender:actor('Riposte'),defenderWeapon:weapon}).triggered,false));
+test('relentless after hit',()=>{const r=planReaction({hit:true,attacker:actor('Relentless'),defender:actor('Riposte'),weapon,defenderWeapon:weapon,enabled:true,rng:()=>0});assert.equal(r.kind,'relentless');assert.equal(r.triggered,true);});
+test('riposte after miss',()=>{const r=planReaction({hit:false,attacker:actor('Relentless'),defender:actor('Riposte'),weapon,defenderWeapon:weapon,enabled:true,rng:()=>0});assert.equal(r.kind,'riposte');assert.equal(r.triggered,true);});
+test('failed reaction roll',()=>assert.equal(planReaction({hit:true,attacker:actor('Relentless'),weapon,enabled:true,rng:()=>0.99}).triggered,false));
+test('reaction never chains',()=>assert.equal(planReaction({hit:true,attacker:actor('Relentless'),weapon,enabled:true,depth:1,rng:()=>0}).triggered,false));
+test('ranged attacks cannot trigger melee reaction',()=>assert.equal(planReaction({hit:true,attacker:actor('Relentless'),weapon:{system:{range:3}},enabled:true,rng:()=>0}).triggered,false));
+test('riposte requires equipped defender weapon',()=>assert.equal(planReaction({hit:false,defender:actor('Riposte'),weapon,enabled:true,rng:()=>0}).triggered,false));

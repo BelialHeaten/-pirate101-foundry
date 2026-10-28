@@ -16,7 +16,8 @@ export const DEFAULT_RULES = Object.freeze({
   comparisonMode: "off", // off by default until exact official curve is known
   comparisonPointsPerPercent: 4, // homebrew approximation: +1% per 4-point advantage
   comparisonMaxPercent: 25,
-  criticalMode: "off", // off or manual; no invented random critical rates
+  criticalMode: "off", // off, manual, or random (user-configured homebrew rates)
+  criticalChances: {super: 5, mega: 2, epic: 1}, // homebrew test defaults; NOT verified official rates
   criticalTier: "none", // none, super, mega, epic (manual testing)
   criticalMultipliers: {super: 1.33, mega: 1.67, epic: 2}, // community estimates, not verified exact
   clampHealth: true
@@ -94,20 +95,32 @@ export function attributeComparison(attackerStats, defenderStats, attribute, rul
   const percent = cfg.comparisonMode === "linear" ? clamp(Math.floor(difference / Math.max(1, number(cfg.comparisonPointsPerPercent, 4))), 0, number(cfg.comparisonMaxPercent, 25)) : 0;
   return {attribute, difference, percent, mode: cfg.comparisonMode};
 }
-export function applyCritical(damage, rules = {}) {
+export function applyCritical(damage, rules = {}, rng = Math.random) {
   const cfg = mergeRules(rules);
-  const tier = cfg.criticalMode === "manual" ? cfg.criticalTier : "none";
-  const multiplier = tier === "none" ? 1 : number(cfg.criticalMultipliers?.[tier], 1);
+  let tier = "none";
+  if (cfg.criticalMode === "manual") {
+    tier = ["super", "mega", "epic"].includes(cfg.criticalTier) ? cfg.criticalTier : "none";
+  } else if (cfg.criticalMode === "random") {
+    // Rates are user-configured percentages, with Epic taking priority, then Mega, then Super.
+    const rates = ["epic", "mega", "super"].map(t => clamp(number(cfg.criticalChances?.[t]), 0, 100));
+    const total = rates.reduce((a,b) => a+b, 0);
+    if (total > 100) throw new Error("Combined critical chances must not exceed 100%.");
+    const roll = rng() * 100;
+    if (roll < rates[0]) tier = "epic";
+    else if (roll < rates[0] + rates[1]) tier = "mega";
+    else if (roll < total) tier = "super";
+  }
+  const multiplier = tier === "none" ? 1 : Math.max(0, number(cfg.criticalMultipliers?.[tier], 1));
   return {tier, multiplier, damage: Math.floor(number(damage) * multiplier)};
 }
 /** Dry-run combat calculation; no actor mutation and no unsupported crit assumption. */
 export function resolveBasicAttack({attacker, defender, weapon, rules = {}, bonuses = {}, rng = Math.random}) {
   const hit = rollHit(attacker, defender, rules, bonuses, rng);
-  if (!hit.hit) return {hit, damage: 0, critical: null, note: "Critical and epic talent processing not yet implemented"};
+  if (!hit.hit) return {hit, damage: 0, critical: null, note: "Miss: critical roll skipped"};
   const damageRoll = rollWeaponDamage(attacker, weapon, rules, rng);
   const comparison = attributeComparison(attacker, defender, damageRoll.attribute, rules);
   const comparedDamage = Math.floor(damageRoll.rolled * (1 + comparison.percent / 100));
-  const critical = applyCritical(comparedDamage, rules);
+  const critical = applyCritical(comparedDamage, rules, rng);
   return {hit, damageRoll, comparison, critical, damage: applyDefense(critical.damage, defender, weapon.damageType ?? "physical", rules),
-    note: "Attribute comparison is opt-in homebrew approximation; critical multipliers are community estimates; Armor/Resist and Rough remain provisional."};
+    note: "Attribute comparison is opt-in homebrew approximation; critical rates and multipliers are experimental; Armor/Resist and Rough remain provisional."};
 }
