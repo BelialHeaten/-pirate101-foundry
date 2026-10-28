@@ -65,3 +65,49 @@ class PirateItemData extends foundry.abstract.TypeDataModel {
     };
   }
 }
+
+// Phase 2: simple actor sheet; the rules engine remains independent of presentation.
+class Pirate101ActorSheet extends ActorSheet {
+  static get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      classes: ["pirate101-flex", "sheet", "actor"],
+      template: "systems/pirate101-flex/templates/actor-sheet.hbs",
+      width: 700, height: 650, resizable: true, submitOnChange: true, closeOnSubmit: false
+    });
+  }
+  getData(options = {}) {
+    const data = super.getData(options);
+    const system = this.actor.system;
+    const derived = system.derived ?? deriveStats(system.toObject());
+    const labels = {strength:"Strength", agility:"Agility", will:"Will", accuracy:"Accuracy", dodge:"Dodge", armor:"Armor", resist:"Resist", rough:"Rough", spooky:"Spooky", critical:"Critical", movement:"Movement", maxHealth:"Max Health"};
+    return {...data, system, derived, classes: {buccaneer:"Buccaneer", musketeer:"Musketeer", privateer:"Privateer", swashbuckler:"Swashbuckler", witchdoctor:"Witchdoctor", custom:"Custom"},
+      statRows: Object.entries(labels).map(([key,label]) => ({key,label,base:system.base[key],total:derived.stats[key]})),
+      equipment: this.actor.items.filter(i => ["weapon","equipment"].includes(i.type)),
+      powers: this.actor.items.filter(i => i.type === "power"), talents: this.actor.items.filter(i => i.type === "talent")};
+  }
+  activateListeners(html) {
+    super.activateListeners(html);
+    html.find("[data-tab]").on("click", ev => {
+      const tab = ev.currentTarget.dataset.tab;
+      html.find("[data-tab]").removeClass("active");
+      html.find(`[data-tab="${tab}"]`).addClass("active");
+      html.find("[data-panel]").prop("hidden", true);
+      html.find(`[data-panel="${tab}"]`).prop("hidden", false);
+    });
+    html.find("[data-create]").on("click", async ev => {
+      const type = ev.currentTarget.dataset.create;
+      await this.actor.createEmbeddedDocuments("Item", [{name:`New ${type}`,type}]);
+    });
+    html.find("[data-open]").on("click", ev => this.actor.items.get(ev.currentTarget.dataset.open)?.sheet.render(true));
+    html.find("[data-equip]").on("change", async ev => {
+      await this.actor.items.get(ev.currentTarget.dataset.equip)?.update({"system.equipped":ev.currentTarget.checked});
+    });
+    html.find("[data-delete]").on("click", async ev => {
+      const item = this.actor.items.get(ev.currentTarget.dataset.delete);
+      if (item && await Dialog.confirm({title:"Delete item?",content:`Delete ${foundry.utils.escapeHTML(item.name)}?`})) await item.delete();
+    });
+  }
+}
+Hooks.once("init", () => {
+  Actors.registerSheet("pirate101-flex", Pirate101ActorSheet, {types:["pirate","companion","enemy","boss","summon"],makeDefault:true,label:"Pirate101 Character Sheet"});
+});

@@ -2,18 +2,44 @@
   "id": "pirate101-flex",
   "title": "Pirate101 Flexible Rules",
   "description": "Unofficial configurable Pirate101-inspired stat and calculation foundation.",
-  "version": "0.1.0",
-"manifest": "https://raw.githubusercontent.com/BelialHeaten/-pirate101-foundry/main/system.json",
-"download": "https://github.com/BelialHeaten/-pirate101-foundry/releases/download/v0.1.0/pirate101-foundry-phase1.zip",
-  "compatibility": {"minimum": "13", "verified": "13"},
-  "authors": [{"name": "Community homebrew project"}],
-  "esmodules": ["system/main.mjs"],
-  "styles": ["system/styles.css"],
-  "documentTypes": {
-    "Actor": {"pirate": {}, "companion": {}, "enemy": {}, "boss": {}, "summon": {}},
-    "Item": {"weapon": {}, "equipment": {}, "talent": {}, "power": {}, "effect": {}}
+  "version": "0.2.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
   },
-  "grid": {"distance": 1, "units": "square"},
+  "authors": [
+    {
+      "name": "Community homebrew project"
+    }
+  ],
+  "esmodules": [
+    "system/main.mjs"
+  ],
+  "styles": [
+    "system/styles.css"
+  ],
+  "documentTypes": {
+    "Actor": {
+      "pirate": {},
+      "companion": {},
+      "enemy": {},
+      "boss": {},
+      "summon": {}
+    },
+    "Item": {
+      "weapon": {},
+      "equipment": {},
+      "talent": {},
+      "power": {},
+      "effect": {}
+    }
+  },
+  "grid": {
+    "distance": 1,
+    "units": "square"
+  },
   "primaryTokenAttribute": "health",
-  "secondaryTokenAttribute": "resources"
+  "secondaryTokenAttribute": "resources",
+  "manifest": "https://raw.githubusercontent.com/BelialHeaten/-pirate101-foundry/main/system.json",
+  "download": "https://github.com/BelialHeaten/-pirate101-foundry/releases/download/v0.2.0/pirate101-foundry-phase2.zip"
 }
