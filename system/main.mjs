@@ -86,10 +86,20 @@ class Pirate101ActorSheet extends ActorSheet {
       equipment: this.actor.items.filter(i => ["weapon","equipment"].includes(i.type)).map(i => ({id:i.id,name:i.name,img:i.img,type:i.type,slot:i.system.slot,equipped:i.system.equipped,bonuses:i.system.modifiers.filter(m=>m.enabled).map(m=>`${m.stat} ${m.value>=0?"+":""}${m.value}`).join(", ")})),
       powers: this.actor.items.filter(i => i.type === "power"), talents: this.actor.items.filter(i => i.type === "talent"), slots: {none:"Unassigned",weapon:"Weapon",hat:"Hat",outfit:"Outfit",boots:"Boots",amulet:"Amulet",ring:"Ring",totem:"Totem",pet:"Pet",other:"Other"}};
   }
+  async _render(force, options) {
+    await super._render(force, options);
+    const tab = this._activePirateTab ?? "stats";
+    const html = this.element;
+    html.find("[data-tab]").removeClass("active");
+    html.find(`[data-tab="${tab}"]`).addClass("active");
+    html.find("[data-panel]").prop("hidden", true);
+    html.find(`[data-panel="${tab}"]`).prop("hidden", false);
+  }
   activateListeners(html) {
     super.activateListeners(html);
     html.find("[data-tab]").on("click", ev => {
       const tab = ev.currentTarget.dataset.tab;
+      this._activePirateTab = tab;
       html.find("[data-tab]").removeClass("active");
       html.find(`[data-tab="${tab}"]`).addClass("active");
       html.find("[data-panel]").prop("hidden", true);
@@ -97,9 +107,24 @@ class Pirate101ActorSheet extends ActorSheet {
     });
     html.find("[data-create]").on("click", async ev => {
       const type = ev.currentTarget.dataset.create;
+      this._activePirateTab = type === "weapon" || type === "equipment" ? "equipment" : type === "power" ? "powers" : "talents";
       await this.actor.createEmbeddedDocuments("Item", [{name:`New ${type}`,type}]);
     });
     html.find("[data-open]").on("click", ev => this.actor.items.get(ev.currentTarget.dataset.open)?.sheet.render(true));
+    html.find("[data-attack]").on("click", async ev => {
+      const weapon = this.actor.items.get(ev.currentTarget.dataset.attack);
+      const target = Array.from(game.user.targets)[0];
+      if (!weapon || !target?.actor) return ui.notifications.warn("Target one enemy token first.");
+      if (!weapon.system.equipped) return ui.notifications.warn("Equip the weapon first.");
+      const a = this.actor.system.derived?.stats;
+      const d = target.actor.system.derived?.stats;
+      if (!a || !d) return ui.notifications.warn("Both actors must use Pirate101 actor types.");
+      const result = resolveBasicAttack({attacker:a, defender:d, weapon:weapon.system.toObject(), rules:game.pirate101.rules});
+      const esc = foundry.utils.escapeHTML;
+      const title = `${esc(this.actor.name)} attacks ${esc(target.name)} with ${esc(weapon.name)}`;
+      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Provisional damage: <strong>${result.damage}</strong></p><small>Preview only: no HP changed. Criticals, chains, and advanced Pirate101 rules are not yet automated.</small></div>`;
+      await ChatMessage.create({user:game.user.id, speaker:ChatMessage.getSpeaker({actor:this.actor}), content});
+    });
     html.find("[data-equip]").on("change", async ev => {
       const item = this.actor.items.get(ev.currentTarget.dataset.equip);
       if (!item) return;
