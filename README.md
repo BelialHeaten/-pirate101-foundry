@@ -52,3 +52,6 @@ This is an early **developer scaffold**, not a complete playable game system. Fo
 
 ## Phase 3
 Compact actor tabs, editable item sheets, equipment slot assignment, stat modifier entry, rank and use fields. See PHASE3-INSTRUCTIONS.md.
+
+## Phase 7
+Adds configurable critical modes (off, forced Super/Mega/Epic, experimental random), tier chat display, and regression tests. See PHASE7-INSTRUCTIONS.md.
