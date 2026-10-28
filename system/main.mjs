@@ -1,4 +1,4 @@
-import {planReaction} from "./reactions.mjs";
+import {runBasicAttack, registerMovementReactions} from "./phase9-combat.mjs";
 import {deriveStats, hitChance, weaponDamageRange, resolveBasicAttack, attributeComparison, applyCritical, mergeRules} from "./rules.mjs";
 
 const DEFAULT_ACTOR = {
@@ -14,7 +14,7 @@ const DEFAULT_ITEM = {
 };
 
 Hooks.once("init", () => {
-  console.info("Pirate101 Flexible Rules | Initializing Phase 8");
+  console.info("Pirate101 Flexible Rules | Initializing Phase 9");
   game.settings.register("pirate101-flex", "rules", {
     name: "Rules configuration (advanced)", hint: "Configurable overrides for the Phase 1 calculation engine.",
     scope: "world", config: false, type: Object, default: mergeRules()
@@ -42,8 +42,8 @@ Hooks.once("init", () => {
     });
   }
   game.settings.register("pirate101-flex", "epicReactions", {
-    name: "Epic Talent reactions (Phase 8 experimental)",
-    hint: "OFF by default. Enables one Relentless follow-up after a melee hit or one Riposte counter after a melee miss. No recursive chains. Homebrew chances.",
+    name: "Epic Talent reactions (Phase 9 experimental)",
+    hint: "OFF by default. Relentless, Riposte, First Strike, Vengeance Strike, Burst Fire, and optional movement Overwatch. No recursive reaction chains. Homebrew chances.",
     scope: "world", config: true, type: Boolean, default: false
   });
   game.settings.register("pirate101-flex", "reactionChanceBase", {
@@ -55,6 +55,31 @@ Hooks.once("init", () => {
     name: "Additional reaction chance per talent rank (%)",
     hint: "Experimental homebrew scaling, capped at 100%.",
     scope: "world", config: true, type: Number, range:{min:0,max:100,step:1}, default:10
+  });
+  game.settings.register("pirate101-flex", "reactionRank1Uses", {
+    name: "Rank 1 Epic Talent uses per combat round",
+    hint: "Default 1. Limits apply only during an active Foundry Combat encounter; outside combat reactions may repeat for testing.",
+    scope: "world", config: true, type: Number, range:{min:0,max:10,step:1}, default:1
+  });
+  game.settings.register("pirate101-flex", "reactionRank2Uses", {
+    name: "Rank 2+ Epic Talent uses per combat round",
+    hint: "Default 3. Rank 3+ special buffs and debuffs are not yet implemented.",
+    scope: "world", config: true, type: Number, range:{min:0,max:10,step:1}, default:3
+  });
+  game.settings.register("pirate101-flex", "gridRangeChecks", {
+    name: "Enforce weapon range and grid distance",
+    hint: "When enabled, basic attacks need an attacker token on the scene. Melee reactions require adjacency. Range uses occupied-token footprints on a square grid.",
+    scope: "world", config: true, type: Boolean, default:true
+  });
+  game.settings.register("pirate101-flex", "movementReactions", {
+    name: "Overwatch on enemy movement (experimental)",
+    hint: "OFF by default. GM resolves ranged Overwatch when a visible enemy moves INTO the reaction radius during active Combat. No movement interruption or token rollback.",
+    scope: "world", config: true, type: Boolean, default:false
+  });
+  game.settings.register("pirate101-flex", "overwatchRadius", {
+    name: "Overwatch entry radius (squares)",
+    hint: "Default 2. Watcher must have an equipped ranged weapon reaching that square. Only opposing token dispositions (+1 vs -1) can trigger it.",
+    scope: "world", config: true, type: Number, range:{min:1,max:10,step:1}, default:2
   });
   game.settings.register("pirate101-flex", "autoDamage", {
     name: "Automatically apply basic-attack damage", hint: "OFF by default. If enabled, attacks reduce HP only when the acting user has ownership permission for the target. Calculations are still provisional.",
@@ -170,59 +195,7 @@ class Pirate101ActorSheet extends ActorSheet {
       if (this._attackBusy) return;
       this._attackBusy = true;
       try {
-      const result = resolveBasicAttack({attacker:a, defender:d, weapon:weapon.system.toObject(), rules:game.pirate101.rules});
-      const esc = foundry.utils.escapeHTML;
-      const title = `${esc(this.actor.name)} attacks ${esc(target.name)} with ${esc(weapon.name)}`;
-      const damage = result.damage;
-      const oldHP = Number(target.actor.system.health.value);
-      const newHP = Math.max(0, oldHP - damage);
-      const apply = game.settings.get("pirate101-flex", "autoDamage");
-      let applied = false;
-      if (apply && result.hit.hit && damage > 0) {
-        if (!target.actor.isOwner) {
-          ui.notifications.warn("Damage preview only: you lack permission to edit the target. Ask the GM to apply it.");
-        } else {
-          await target.actor.update({"system.health.value":newHP});
-          applied = true;
-        }
-      }
-      const criticalText = result.critical?.tier && result.critical.tier !== "none"
-        ? `<p>Critical: <strong>${result.critical.tier.toUpperCase()}</strong> (×${result.critical.multiplier})</p>` : "";
-      const comparisonText = result.comparison ? `<p>Attribute comparison: ${result.comparison.difference >= 0 ? "+" : ""}${result.comparison.difference} (${result.comparison.percent}% bonus; ${result.comparison.mode})</p>` : "";
-      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Damage: <strong>${damage}</strong></p>${comparisonText}${criticalText}<p>${applied ? `HP: ${oldHP} → ${newHP}` : "Preview only — target HP unchanged"}</p><small>Armor/Resist and Rough remain provisional. Critical chances/multipliers, Armor/Resist and Rough are experimental; powers and Epic Talent chains are not automated.</small></div>`;
-      await ChatMessage.create({user:game.user.id, speaker:ChatMessage.getSpeaker({actor:this.actor}), content});
-      // One optional reaction per manually initiated basic attack. No recursive calls.
-      if (game.settings.get("pirate101-flex", "epicReactions")) {
-        const defenderWeapon = target.actor.items.find(i => i.type === "weapon" && i.system.equipped && Number(i.system.range) <= 1);
-        const reaction = planReaction({hit:result.hit.hit, attacker:this.actor, defender:target.actor,
-          weapon, defenderWeapon, enabled:true,
-          chanceBase:game.settings.get("pirate101-flex", "reactionChanceBase"),
-          chancePerRank:game.settings.get("pirate101-flex", "reactionChancePerRank")});
-        if (reaction.triggered) {
-          const isRiposte = reaction.kind === "riposte";
-          const reactor = isRiposte ? target.actor : this.actor;
-          const victim = isRiposte ? this.actor : target.actor;
-          const reactWeapon = isRiposte ? defenderWeapon : weapon;
-          // The reaction is deliberately skipped if user cannot edit its victim.
-          // No GM socket escalation or silent HP modifications.
-          if (!victim.isOwner) {
-            ui.notifications.warn(`${reaction.talent} triggered, but target ownership is missing. No reaction damage applied.`);
-          } else {
-            const reactionResult = resolveBasicAttack({attacker:reactor.system.derived.stats,
-              defender:victim.system.derived.stats,weapon:reactWeapon.system.toObject(),rules:game.pirate101.rules});
-            const previousHP = Number(victim.system.health.value);
-            const nextHP = Math.max(0,previousHP-reactionResult.damage);
-            let reactionApplied = false;
-            if (apply && reactionResult.hit.hit && reactionResult.damage > 0) {
-              await victim.update({"system.health.value":nextHP});
-              reactionApplied = true;
-            }
-            const reactionTitle = `${esc(reactor.name)} uses ${esc(reaction.talent)} against ${esc(victim.name)}`;
-            const reactionContent = `<div class="p101-attack-card"><h3>${reactionTitle}</h3><p>Reaction: ${reaction.kind.toUpperCase()} (rank ${reaction.rank}, trigger roll ${reaction.roll} / ${reaction.chance}%)</p><p>Follow-up hit roll: ${reactionResult.hit.roll} / ${reactionResult.hit.chance}% — <strong>${reactionResult.hit.hit ? "Hit" : "Miss"}</strong></p><p>Damage: <strong>${reactionResult.damage}</strong></p>${reactionResult.critical?.tier !== "none" && reactionResult.critical ? `<p>Critical: ${reactionResult.critical.tier.toUpperCase()} (×${reactionResult.critical.multiplier})</p>` : ""}<p>${reactionApplied ? `HP: ${previousHP} → ${nextHP}` : "Preview only — HP unchanged"}</p><small>Phase 8: one-step experimental reaction. Reaction attacks do not chain.</small></div>`;
-            await ChatMessage.create({user:game.user.id,speaker:ChatMessage.getSpeaker({actor:reactor}),content:reactionContent});
-          }
-        }
-      }
+      await runBasicAttack({actor:this.actor,weapon,targetToken:target});
       } catch (err) { console.error("Pirate101 attack failed",err); ui.notifications.error(`Attack failed: ${err.message}`); }
       finally { this._attackBusy = false; }
     });
@@ -284,3 +257,5 @@ class Pirate101ItemSheet extends ItemSheet {
 Hooks.once("init",()=>{
   Items.registerSheet("pirate101-flex",Pirate101ItemSheet,{types:["weapon","equipment","talent","power","effect"],makeDefault:true,label:"Pirate101 Item Sheet"});
 });
+
+Hooks.once("ready", () => registerMovementReactions());

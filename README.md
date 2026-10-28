@@ -59,3 +59,7 @@ Compact actor tabs, editable item sheets, equipment slot assignment, stat modifi
 
 ## Phase 7
 Adds configurable critical modes (off, forced Super/Mega/Epic, experimental random), tier chat display, and regression tests. See PHASE7-INSTRUCTIONS.md.
+
+## Phase 9 (v0.9.0)
+
+Expanded Epic Talent reaction events (First Strike, Vengeance Strike, Burst Fire, optional movement Overwatch), bounded reaction depth, grid-distance checks, and per-combat-round talent use limits. Relentless/Riposte and all existing combat calculations are preserved. See **PHASE9-INSTRUCTIONS.md** and **PHASE9-DESIGN.md** for exact behavior and limitations.
