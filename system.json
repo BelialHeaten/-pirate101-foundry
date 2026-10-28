@@ -1,8 +1,9 @@
+
 {
   "id": "pirate101-flex",
   "title": "Pirate101 Flexible Rules",
   "description": "Unofficial configurable Pirate101-inspired stat and calculation foundation.",
-"version": "0.7.0",
+  "version": "0.7.0",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
@@ -41,5 +42,5 @@
   "primaryTokenAttribute": "health",
   "secondaryTokenAttribute": "resources",
   "manifest": "https://raw.githubusercontent.com/BelialHeaten/-pirate101-foundry/main/system.json",
-"download": "https://github.com/BelialHeaten/-pirate101-foundry/releases/download/v0.7.0/pirate101-foundry-phase7.zip"
+  "download": "https://github.com/BelialHeaten/-pirate101-foundry/releases/download/v0.7.0/pirate101-foundry-phase7.zip"
 }
