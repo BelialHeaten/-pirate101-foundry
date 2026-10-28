@@ -41,5 +41,5 @@
   "primaryTokenAttribute": "health",
   "secondaryTokenAttribute": "resources",
   "manifest": "https://raw.githubusercontent.com/BelialHeaten/-pirate101-foundry/main/system.json",
-  "download": "https://github.com/BelialHeaten/-pirate101-foundry/releases/download/v0.3.0/pirate101-foundry-phase3.zip",
+"download": "https://github.com/BelialHeaten/-pirate101-foundry/releases/download/v0.3.0/pirate101-foundry-phase3.zip"
 }
