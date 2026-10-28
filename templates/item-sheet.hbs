@@ -1,0 +1,22 @@
+<form class="p101-item-sheet flexcol" autocomplete="off">
+  <header class="p101-item-header"><img src="{{item.img}}" data-edit="img" width="60" height="60"/><div><input name="name" value="{{item.name}}"/><small>{{item.type}}</small></div></header>
+  <section class="p101-item-fields">
+  {{#if isGear}}
+    <label>Slot <select name="system.slot">{{selectOptions slots selected=system.slot}}</select></label>
+    <label>Equipped <input type="checkbox" name="system.equipped" {{checked system.equipped}}/></label>
+  {{/if}}
+  {{#if isWeapon}}
+    <label>Scaling attribute <select name="system.attribute">{{selectOptions attributes selected=system.attribute}}</select></label>
+    <label>Minimum damage <input type="number" name="system.damage.min" value="{{system.damage.min}}"/></label>
+    <label>Maximum damage <input type="number" name="system.damage.max" value="{{system.damage.max}}"/></label>
+    <label>Range <input type="number" name="system.range" value="{{system.range}}"/></label>
+    <label>Damage type <select name="system.damageType"><option value="physical" {{#if (eq system.damageType "physical")}}selected{{/if}}>Physical</option><option value="magical" {{#if (eq system.damageType "magical")}}selected{{/if}}>Magical</option></select></label>
+  {{/if}}
+  {{#if isTalent}}<label>Talent rank <input type="number" name="system.rank" value="{{system.rank}}" min="1"/></label><label>Trigger (reference) <input name="system.trigger" value="{{system.trigger}}"/></label>{{/if}}
+  {{#if isPower}}<label>Uses remaining <input type="number" name="system.uses.value" value="{{system.uses.value}}"/></label><label>Maximum uses <input type="number" name="system.uses.max" value="{{system.uses.max}}"/></label>{{/if}}
+  <h3>Stat modifiers</h3><p class="p101-hint">Unconditional modifiers apply when gear is equipped. Conditional modifiers are reserved for future automation.</p>
+  {{#each modifiers as |m|}}<div class="p101-mod-row"><input name="system.modifiers.{{m.index}}.stat" value="{{m.stat}}" title="Stat key, e.g. strength, accuracy, maxHealth"/><input type="number" name="system.modifiers.{{m.index}}.value" value="{{m.value}}"/><label><input type="checkbox" name="system.modifiers.{{m.index}}.enabled" {{checked m.enabled}}/> On</label><button type="button" data-remove-modifier="{{m.index}}">×</button></div>{{/each}}
+  <button type="button" data-add-modifier>Add modifier</button>
+  <h3>Description</h3><textarea name="system.description">{{system.description}}</textarea>
+  </section>
+</form>

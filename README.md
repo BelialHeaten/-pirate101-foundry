@@ -48,3 +48,7 @@ The calculation engine is exposed for macros, but does **not** automatically upd
 With Node.js 20+: `node --test tests/rules.test.mjs`.
 
 This is an early **developer scaffold**, not a complete playable game system. Foundry/Forge runtime compatibility must be validated in an actual v13 world.
+
+
+## Phase 3
+Compact actor tabs, editable item sheets, equipment slot assignment, stat modifier entry, rank and use fields. See PHASE3-INSTRUCTIONS.md.

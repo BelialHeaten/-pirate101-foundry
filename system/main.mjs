@@ -7,7 +7,7 @@ const DEFAULT_ACTOR = {
   traits: [], tags: [], notes: ""
 };
 const DEFAULT_ITEM = {
-  description: "", equipped: false, modifiers: [],
+  description: "", equipped: false, slot: "none", modifiers: [],
   attribute: "strength", damage: {min: 1, max: 2}, damageType: "physical", range: 1,
   trigger: "", rank: 1, uses: {value: 0, max: 0}, tags: []
 };
@@ -49,6 +49,7 @@ class PirateItemData extends foundry.abstract.TypeDataModel {
   static defineSchema() {
     return {
       description: new F.HTMLField({initial: ""}),
+      slot: new F.StringField({initial: "none"}),
       equipped: new F.BooleanField({initial: false}),
       modifiers: new F.ArrayField(new F.SchemaField({
         stat: new F.StringField({initial: "strength"}), value: new F.NumberField({initial: 0}),
@@ -72,7 +73,7 @@ class Pirate101ActorSheet extends ActorSheet {
     return foundry.utils.mergeObject(super.defaultOptions, {
       classes: ["pirate101-flex", "sheet", "actor"],
       template: "systems/pirate101-flex/templates/actor-sheet.hbs",
-      width: 700, height: 650, resizable: true, submitOnChange: true, closeOnSubmit: false
+      width: 790, height: 690, resizable: true, submitOnChange: true, closeOnSubmit: false
     });
   }
   getData(options = {}) {
@@ -82,8 +83,8 @@ class Pirate101ActorSheet extends ActorSheet {
     const labels = {strength:"Strength", agility:"Agility", will:"Will", accuracy:"Accuracy", dodge:"Dodge", armor:"Armor", resist:"Resist", rough:"Rough", spooky:"Spooky", critical:"Critical", movement:"Movement", maxHealth:"Max Health"};
     return {...data, system, derived, classes: {buccaneer:"Buccaneer", musketeer:"Musketeer", privateer:"Privateer", swashbuckler:"Swashbuckler", witchdoctor:"Witchdoctor", custom:"Custom"},
       statRows: Object.entries(labels).map(([key,label]) => ({key,label,base:system.base[key],total:derived.stats[key]})),
-      equipment: this.actor.items.filter(i => ["weapon","equipment"].includes(i.type)),
-      powers: this.actor.items.filter(i => i.type === "power"), talents: this.actor.items.filter(i => i.type === "talent")};
+      equipment: this.actor.items.filter(i => ["weapon","equipment"].includes(i.type)).map(i => ({id:i.id,name:i.name,img:i.img,type:i.type,slot:i.system.slot,equipped:i.system.equipped,bonuses:i.system.modifiers.filter(m=>m.enabled).map(m=>`${m.stat} ${m.value>=0?"+":""}${m.value}`).join(", ")})),
+      powers: this.actor.items.filter(i => i.type === "power"), talents: this.actor.items.filter(i => i.type === "talent"), slots: {none:"Unassigned",weapon:"Weapon",hat:"Hat",outfit:"Outfit",boots:"Boots",amulet:"Amulet",ring:"Ring",totem:"Totem",pet:"Pet",other:"Other"}};
   }
   activateListeners(html) {
     super.activateListeners(html);
@@ -100,7 +101,18 @@ class Pirate101ActorSheet extends ActorSheet {
     });
     html.find("[data-open]").on("click", ev => this.actor.items.get(ev.currentTarget.dataset.open)?.sheet.render(true));
     html.find("[data-equip]").on("change", async ev => {
-      await this.actor.items.get(ev.currentTarget.dataset.equip)?.update({"system.equipped":ev.currentTarget.checked});
+      const item = this.actor.items.get(ev.currentTarget.dataset.equip);
+      if (!item) return;
+      const slot = item.system.slot;
+      if (ev.currentTarget.checked && slot !== "none" && slot !== "other") {
+        const previous = this.actor.items.filter(i => i.id !== item.id && i.system.equipped && i.system.slot === slot);
+        if (previous.length) await this.actor.updateEmbeddedDocuments("Item",previous.map(i=>({_id:i.id,"system.equipped":false})));
+      }
+      await item.update({"system.equipped":ev.currentTarget.checked});
+    });
+    html.find("[data-slot]").on("change", async ev => {
+      const item = this.actor.items.get(ev.currentTarget.dataset.slot);
+      if (item) await item.update({"system.slot":ev.currentTarget.value});
     });
     html.find("[data-delete]").on("click", async ev => {
       const item = this.actor.items.get(ev.currentTarget.dataset.delete);
@@ -110,4 +122,39 @@ class Pirate101ActorSheet extends ActorSheet {
 }
 Hooks.once("init", () => {
   Actors.registerSheet("pirate101-flex", Pirate101ActorSheet, {types:["pirate","companion","enemy","boss","summon"],makeDefault:true,label:"Pirate101 Character Sheet"});
+});
+
+// Phase 3: editable item configuration, including additive stat modifiers.
+class Pirate101ItemSheet extends ItemSheet {
+  static get defaultOptions() {
+    return foundry.utils.mergeObject(super.defaultOptions, {
+      classes:["pirate101-flex","sheet","item"], template:"systems/pirate101-flex/templates/item-sheet.hbs",
+      width:540,height:600,resizable:true,submitOnChange:true,closeOnSubmit:false
+    });
+  }
+  getData(options={}) {
+    const data=super.getData(options), item=this.item;
+    return {...data, system:item.system, isGear:["weapon","equipment"].includes(item.type),
+      isWeapon:item.type==="weapon", isTalent:item.type==="talent", isPower:item.type==="power",
+      slots:{none:"Unassigned",weapon:"Weapon",hat:"Hat",outfit:"Outfit",boots:"Boots",amulet:"Amulet",ring:"Ring",totem:"Totem",pet:"Pet",other:"Other"},
+      attributes:{strength:"Strength",agility:"Agility",will:"Will"},
+      modifiers:item.system.modifiers.map((m,index)=>({...m,index}))};
+  }
+  activateListeners(html) {
+    super.activateListeners(html);
+    html.find("[data-add-modifier]").on("click",async()=>{
+      const modifiers=this.item.system.modifiers.map(m=>m.toObject ? m.toObject():foundry.utils.deepClone(m));
+      modifiers.push({stat:"strength",value:0,enabled:true,condition:""});
+      await this.item.update({"system.modifiers":modifiers});
+    });
+    html.find("[data-remove-modifier]").on("click",async ev=>{
+      const index=Number(ev.currentTarget.dataset.removeModifier);
+      const modifiers=this.item.system.modifiers.map(m=>m.toObject ? m.toObject():foundry.utils.deepClone(m));
+      modifiers.splice(index,1);
+      await this.item.update({"system.modifiers":modifiers});
+    });
+  }
+}
+Hooks.once("init",()=>{
+  Items.registerSheet("pirate101-flex",Pirate101ItemSheet,{types:["weapon","equipment","talent","power","effect"],makeDefault:true,label:"Pirate101 Item Sheet"});
 });
