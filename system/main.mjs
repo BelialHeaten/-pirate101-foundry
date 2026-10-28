@@ -13,10 +13,14 @@ const DEFAULT_ITEM = {
 };
 
 Hooks.once("init", () => {
-  console.info("Pirate101 Flexible Rules | Initializing Phase 1");
+  console.info("Pirate101 Flexible Rules | Initializing Phase 5");
   game.settings.register("pirate101-flex", "rules", {
     name: "Rules configuration (advanced)", hint: "Configurable overrides for the Phase 1 calculation engine.",
     scope: "world", config: false, type: Object, default: mergeRules()
+  });
+  game.settings.register("pirate101-flex", "autoDamage", {
+    name: "Automatically apply basic-attack damage", hint: "OFF by default. If enabled, attacks reduce HP only when the acting user has ownership permission for the target. Calculations are still provisional.",
+    scope: "world", config: true, type: Boolean, default: false
   });
   CONFIG.Actor.dataModels = Object.fromEntries(["pirate", "companion", "enemy", "boss", "summon"].map(t => [t, PirateActorData]));
   CONFIG.Item.dataModels = Object.fromEntries(["weapon", "equipment", "talent", "power", "effect"].map(t => [t, PirateItemData]));
@@ -119,11 +123,29 @@ class Pirate101ActorSheet extends ActorSheet {
       const a = this.actor.system.derived?.stats;
       const d = target.actor.system.derived?.stats;
       if (!a || !d) return ui.notifications.warn("Both actors must use Pirate101 actor types.");
+      if (this._attackBusy) return;
+      this._attackBusy = true;
+      try {
       const result = resolveBasicAttack({attacker:a, defender:d, weapon:weapon.system.toObject(), rules:game.pirate101.rules});
       const esc = foundry.utils.escapeHTML;
       const title = `${esc(this.actor.name)} attacks ${esc(target.name)} with ${esc(weapon.name)}`;
-      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Provisional damage: <strong>${result.damage}</strong></p><small>Preview only: no HP changed. Criticals, chains, and advanced Pirate101 rules are not yet automated.</small></div>`;
+      const damage = result.damage;
+      const oldHP = Number(target.actor.system.health.value);
+      const newHP = Math.max(0, oldHP - damage);
+      const apply = game.settings.get("pirate101-flex", "autoDamage");
+      let applied = false;
+      if (apply && result.hit.hit && damage > 0) {
+        if (!target.actor.isOwner) {
+          ui.notifications.warn("Damage preview only: you lack permission to edit the target. Ask the GM to apply it.");
+        } else {
+          await target.actor.update({"system.health.value":newHP});
+          applied = true;
+        }
+      }
+      const content = `<div class="p101-attack-card"><h3>${title}</h3><p>Hit roll: ${result.hit.roll} / ${result.hit.chance}% — <strong>${result.hit.hit ? "Hit" : "Miss"}</strong></p><p>Provisional damage: <strong>${damage}</strong></p><p>${applied ? `HP: ${oldHP} → ${newHP}` : "Preview only — target HP unchanged"}</p><small>Armor/Resist and Rough are provisional. Criticals, attribute comparison, powers, and Epic Talent chains are not automated.</small></div>`;
       await ChatMessage.create({user:game.user.id, speaker:ChatMessage.getSpeaker({actor:this.actor}), content});
+      } catch (err) { console.error("Pirate101 attack failed",err); ui.notifications.error(`Attack failed: ${err.message}`); }
+      finally { this._attackBusy = false; }
     });
     html.find("[data-equip]").on("change", async ev => {
       const item = this.actor.items.get(ev.currentTarget.dataset.equip);
